@@ -10,7 +10,7 @@ An intelligent CLI application that uses Google's Agent Development Kit (ADK) an
 - **Fact Consolidation**: Merges information from multiple sources into consistent, citation-rich fact sheets
 - **Structured Output**: Generates validated JSON-formatted profiles with Title, Biography, and Current Status
 - **Beautiful CLI Interface**: Rich terminal output with progress indicators and formatted results
-- **Comprehensive Validation**: Ensures profile accuracy and currency using authoritative sources
+- **Comprehensive Validation**: Ensures profile accuracy using authoritative sources
 
 ## Architecture
 
@@ -31,13 +31,6 @@ The system uses a agent-based architecture with intelligent routing:
    - **Consolidation Agent**: Merges research into a single, consistent fact sheet
    - **Extraction Agent**: Produces structured JSON profile
    - **Validation Agent**: Verifies accuracy and resolves any inconsistencies
-
-### Data Flow
-```
-Query → Router → Disambiguation → Parallel Research → Consolidation → Extraction → Validation → Profile
-    ↓
-  Non-Politician → Friendly Message
-```
 
 ## Prerequisites
 
@@ -79,5 +72,12 @@ python main.py --name "Nirmala Sitharaman"
 
 # Short form
 python main.py -n "Narendra Modi"
+```
+### Google ADK WEB UI
+
+```bash
+# Web Ui hosted locally open the local and enter the user query
+
+adk web
 ```
 
