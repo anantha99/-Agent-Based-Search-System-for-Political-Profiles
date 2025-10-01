@@ -35,9 +35,8 @@ The system uses a agent-based architecture with intelligent routing:
 ## Prerequisites
 
 - Python 3.8+
-- Google Cloud Project with Vertex AI enabled
+- Google Cloud Project with Vertex AI enabled (optional)
 - Google API key with Gemini AI access
-- Google Custom Search Engine ID (for web research capabilities)
 
 ## Installation
 
@@ -47,12 +46,21 @@ The system uses a agent-based architecture with intelligent routing:
    cd -Agent-Based-Search-System-for-Political-Profiles
    ```
 
-2. Install dependencies:
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
+   # On Windows
+   venv\Scripts\activate
+   # On macOS/Linux
+   source venv/bin/activate
+   ```
+
+3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-3. Set up environment variables in `political_profiles_agent/.env`:
+4. Set up environment variables in `political_profiles_agent/.env`:
    ```bash
    GOOGLE_API_KEY=your_google_api_key_here
    ```
@@ -80,4 +88,3 @@ python main.py -n "Narendra Modi"
 
 adk web
 ```
-
