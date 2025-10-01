@@ -1,28 +1,41 @@
 import os
 from dotenv import load_dotenv
 
+from typing import AsyncGenerator
 from google.adk.tools import google_search
+from google.adk.agents import BaseAgent
+from google.adk.agents.invocation_context import InvocationContext
+from google.adk.events import Event
 from pydantic import BaseModel, Field
 from google.adk.agents import LlmAgent, SequentialAgent, ParallelAgent
 from google.genai import types
 
 load_dotenv()
+from schemas.disambiguation import DisambiguationResult
+from schemas.profile import ProfileOutput
 
-
-#Disambiguation: ensure the correct person/entity
 disambiguate = LlmAgent(
     name="DisambiguatePerson",
     model="gemini-2.5-flash",
     instruction=(
-        "Given a name of an Indian politician, identify the correct person, "
-        "return a one-line identity statement and 3-5 canonical sources to use (official gov, election commission, "
-        "parliament, and authoritative encyclopedic references)."
+        "Given a name, determine if it is an Indian politician. "
+        "If not a politician, set is_politician=false and explain briefly in notes. "
+        "If a politician, set is_politician=true, set normalized_name, entity_type='politician'. "
+        "Return only the structured result."
     ),
-    tools=[google_search],
-    output_key="entity_grounding"
+    # tools=[google_search],
+    output_schema=DisambiguationResult,
+    output_key="entity_grounding",
+    generate_content_config=types.GenerateContentConfig(
+        temperature=0.0,
+        max_output_tokens=128,
+        response_mime_type="application/json",
+    ),
+    disallow_transfer_to_parent=True,
+    disallow_transfer_to_peers=True,
 )
 
-#Parallel grounded research from multiple angles
+
 gov_sources = LlmAgent(
     name="GovSources",
     model="gemini-2.5-flash",
@@ -44,7 +57,7 @@ encyclopedia_sources = LlmAgent(
     tools=[google_search],
     output_key="encyc_note"
 )
-
+# Recent updates: any role changes in last 90 days
 recent_updates = LlmAgent(
     name="RecentUpdates",
     model="gemini-2.5-flash",
@@ -55,7 +68,7 @@ recent_updates = LlmAgent(
     tools=[google_search],
     output_key="recent_note"
 )
-
+# Research in parallel: gov, encyclopedia, recent
 parallel_research = ParallelAgent(
     name="ParallelResearch",
     sub_agents=[gov_sources, encyclopedia_sources, recent_updates],
@@ -73,29 +86,7 @@ consolidate = LlmAgent(
     output_key="fact_sheet"
 )
 
-#Structured extraction with strict JSON schema
-class ProfileOutput(BaseModel):
-    title: str = Field(description=(
-        "If the politician currently holds any political office, set to that current office "
-        "(e.g., 'Prime Minister of India', 'Leader of the Opposition in Lok Sabha', 'Chief Minister of Uttar Pradesh') "
-        "with no years included. Only if no current office is held, set to 'Former highest role (years)' with service "
-        "years if known."
-    ))
-    biography: str = Field(description="8–12 sentence biography to reduce truncation risk")
-    current_status: str = Field(description="Present role and responsibilities, or 'Not in office' with latest update")
-
-
-
-profile_schema = {
-  "type": "OBJECT",
-  "properties": {
-    "Title": {"type": "STRING"},
-    "Biography": {"type": "STRING"},
-    "Current Status": {"type": "STRING"}
-  },
-  "required": ["Title", "Biography", "Current Status"]
-}
-
+# Extract structured profile from the consolidated fact sheet
 extract_structured = LlmAgent(
     name="ExtractProfile",
     model="gemini-2.5-flash",
@@ -120,9 +111,7 @@ extract_structured = LlmAgent(
     disallow_transfer_to_peers=True,
 )
 
-
-
-#Lightweight validator
+# Validate and correct the extracted profile
 validator = LlmAgent(
     name="ValidateProfile",
     model="gemini-2.5-flash",
@@ -146,10 +135,58 @@ validator = LlmAgent(
 )
 
 
-
-# Root pipeline: sequential orchestration
-root_agent = SequentialAgent(
-    name="PoliticalProfilePipeline",
-    sub_agents=[disambiguate, parallel_research, consolidate, extract_structured, validator],
-    description="Search → Summarize → Structure pipeline for politician profiles"
+# friendly quick message agent when the name entered is not a politician
+not_a_politician = LlmAgent(
+    name="NotAPolitician",
+    model="gemini-2.5-flash",
+    instruction=(
+        "Write a short, friendly message saying the entered name does not appear to be an Indian politician. "
+        "Suggest entering the name of a political figure (e.g., an MP/MLA, Chief Minister, or Union Minister). "
+        "Keep it under 3 sentences, no jargon."
+    ),
+    output_key="final_message",
+    generate_content_config=types.GenerateContentConfig(
+        temperature=0.2,
+        max_output_tokens=96,
+    ),
 )
+
+
+# research → consolidate → extract → validate pipeline
+research_pipeline = SequentialAgent(
+    name="ResearchPipeline",
+    sub_agents=[parallel_research, consolidate, extract_structured, validator],
+    description="Research → Consolidate → Structure → Validate",
+)
+
+
+# REPLACE the final root_agent with this Router
+class Router(BaseAgent):
+    def __init__(self, name: str):
+        super().__init__(
+            name=name,
+            description="Routes quickly to a friendly message if not a politician; else runs the research pipeline.",
+            sub_agents=[disambiguate, not_a_politician, research_pipeline],
+        )
+
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+        # 1) Run fast disambiguation
+        async for event in disambiguate.run_async(ctx):
+            yield event
+
+        gate = ctx.session.state.get("entity_grounding") or {}
+        is_pol = bool(gate.get("is_politician"))
+
+        # 2) Quick exit with friendly message if not a politician
+        if not is_pol:
+            async for event in not_a_politician.run_async(ctx):
+                yield event
+            return
+
+        # 3) Otherwise, proceed with the full research pipeline
+        async for event in research_pipeline.run_async(ctx):
+            yield event
+
+
+# Final root
+root_agent = Router(name="PoliticalProfileRouter")

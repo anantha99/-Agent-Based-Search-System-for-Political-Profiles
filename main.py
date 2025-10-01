@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any
 
 from dotenv import load_dotenv
 
-# CLI + terminal UI
+
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -15,16 +15,14 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich.text import Text
 
-# ADK runtime pieces
+
 from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.genai import types
 
-# Import the pipeline from the agent module
 from political_profiles_agent.agent import root_agent
 
 
-# Load environment variables (e.g., Gemini API key).
 load_dotenv()
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
@@ -33,18 +31,20 @@ console = Console()
 APP_NAME = "PoliticalProfileCLI"
 session_service = InMemorySessionService()
 
-# Map agent names to user‑friendly stage labels for spinner updates.
 STAGE_LABELS = {
-    "DisambiguatePerson": "Disambiguating entity",
-    "GovSources": "Collecting govt sources",
-    "EncyclopediaSources": "Collecting encyclopedia/bio",
-    "RecentUpdates": "Fetching recent updates",
-    "ParallelResearch": "Running parallel research",
-    "ConsolidateNotes": "Consolidating notes",
-    "ExtractProfile": "Extracting structured profile",
-    "ValidateProfile": "Validating profile",
-    "PoliticalProfilePipeline": "Running profile pipeline",
+    "PoliticalProfileRouter": "Checking the name",
+    "DisambiguatePerson": "Finding the right person",
+    "NotAPolitician": "Not a politician",
+    "GovSources": "Checking government sites",
+    "EncyclopediaSources": "Checking bios and encyclopedias",
+    "RecentUpdates": "Checking recent changes",
+    "ParallelResearch": "Researching in parallel",
+    "ConsolidateNotes": "Combining findings",
+    "ExtractProfile": "Creating the profile",
+    "ValidateProfile": "Double-checking details",
+    "ResearchPipeline": "Building the profile",
 }
+
 
 def render_profile(profile: Dict[str, Any]) -> None:
     """Pretty print the final validated profile JSON."""
@@ -154,7 +154,12 @@ async def run_pipeline(query: str) -> Optional[Dict[str, Any]]:
     # After run completes, the session state should contain the validated output under output_key
     session = await session_service.get_session(app_name=APP_NAME, user_id=user_id, session_id=session_id)
     state = getattr(session, "state", {}) or {}
-    
+
+    # Quick path: the router produced a friendly message for non‑politicians
+    final_message = state.get("final_message")
+    if final_message:
+        return {"final_message": final_message}
+
     final_profile = state.get("final_profile") or state.get("structured_profile") or state.get("fact_sheet")
     
     if not final_profile:
@@ -200,6 +205,12 @@ def main(
 
     # Run the pipeline asynchronously
     profile = asyncio.run(run_pipeline(name))
+
+    # If the router decided it's not a politician, print friendly message and exit cleanly
+    if isinstance(profile, dict) and "final_message" in profile:
+        console.print(Panel.fit(Text(profile["final_message"]), title="Info", border_style="yellow"))
+        return
+
     if not profile:
         console.print("[red]No profile produced by the pipeline.[/red]")
         raise typer.Exit(code=1)
