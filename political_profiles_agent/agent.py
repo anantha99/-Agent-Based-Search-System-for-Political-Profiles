@@ -158,9 +158,7 @@ research_pipeline = SequentialAgent(
     sub_agents=[parallel_research, consolidate, extract_structured, validator],
     description="Research → Consolidate → Structure → Validate",
 )
-
-
-# REPLACE the final root_agent with this Router
+# Router agent: disambiguate → (not_a_politician | research_pipeline)
 class Router(BaseAgent):
     def __init__(self, name: str):
         super().__init__(
