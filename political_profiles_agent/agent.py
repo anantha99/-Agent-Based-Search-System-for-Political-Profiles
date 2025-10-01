@@ -75,14 +75,15 @@ consolidate = LlmAgent(
 
 #Structured extraction with strict JSON schema
 class ProfileOutput(BaseModel):
-    Title: str = Field(description=(
+    title: str = Field(description=(
         "If the politician currently holds any political office, set to that current office "
         "(e.g., 'Prime Minister of India', 'Leader of the Opposition in Lok Sabha', 'Chief Minister of Uttar Pradesh') "
         "with no years included. Only if no current office is held, set to 'Former highest role (years)' with service "
-        "years if known (e.g., 'Former Prime Minister (2004–2014)') or a single year if only the final year is known."
+        "years if known."
     ))
-    Biography: str = Field(description="10-15 sentence biography")
-    Current_Status: str = Field(alias="Current Status", description="Present role and responsibilities")
+    biography: str = Field(description="8–12 sentence biography to reduce truncation risk")
+    current_status: str = Field(description="Present role and responsibilities, or 'Not in office' with latest update")
+
 
 
 profile_schema = {
@@ -97,20 +98,26 @@ profile_schema = {
 
 extract_structured = LlmAgent(
     name="ExtractProfile",
-    model="gemini-2.5-pro",
+    model="gemini-2.5-flash",
     instruction=(
-        "Use fact_sheet to produce a concise JSON object with keys: Title, Biography, Current Status. "
-        "Title: If the politician holds any post now, output only the current office title without years "
+        "Use fact_sheet to produce ONLY a JSON object with exactly these keys: "
+        "title, biography, current_status. "
+        "title: If the politician holds any post now, output only the current office title without years "
         "(e.g., 'Prime Minister of India', 'Leader of the Opposition in Lok Sabha', 'Chief Minister of Uttar Pradesh'). "
-        "Only if they hold no current post, set Title to 'Former highest role (years)' including service years if known. "
-        "Biography:10-15 sentences including education, career and achievements. Current Status: clearly state the present roles and responsibilities or 'Not in office' with any current latest update on them. "
-        "Do not add extra keys. Return only valid JSON."
+        "Only if no current post exists, set title to 'Former highest role (years)' including service years if known. "
+        "biography: 8–12 sentences including education, career, and achievements. "
+        "current_status: clearly state present roles and responsibilities or 'Not in office' with the latest update. "
+        "Return ONLY valid JSON, no markdown, no commentary."
     ),
-    output_schema=ProfileOutput, 
+    output_schema=ProfileOutput,
     generate_content_config=types.GenerateContentConfig(
-        temperature=0.2
+        temperature=0.2,
+        response_mime_type="application/json",
+        max_output_tokens=2000,
     ),
-    output_key="structured_profile"
+    output_key="structured_profile",
+    disallow_transfer_to_parent=True,
+    disallow_transfer_to_peers=True,
 )
 
 
@@ -121,13 +128,21 @@ validator = LlmAgent(
     model="gemini-2.5-flash",
     instruction=(
         "Validate and correct structured_profile using fact_sheet and prior notes so that: "
-        "1) If a current post exists, Title is only the current office title with no years; "
-        "2) Only when no current post exists, Title is 'Former highest role (years)' with service years if available; "
-        "3) Biography remains 10-15 sentences including education, career and achievements; "
-        "4) Current Status reflects the latest government/parliament sources. "
-        "If inconsistencies exist, correct them using the provided notes without changing schema."
+        "1) If a current post exists, title is only the current office (no years); "
+        "2) Only when no current post exists, title is 'Former highest role (years)'; "
+        "3) biography remains 8–12 sentences; "
+        "4) current_status reflects the latest government/parliament sources. "
+        "Return ONLY a JSON object with keys: title, biography, current_status."
     ),
-    output_key="final_profile"
+    output_schema=ProfileOutput,
+    generate_content_config=types.GenerateContentConfig(
+        temperature=0.1,
+        response_mime_type="application/json",
+        max_output_tokens=2000,
+    ),
+    output_key="final_profile",
+    disallow_transfer_to_parent=True,
+    disallow_transfer_to_peers=True,
 )
 
 
